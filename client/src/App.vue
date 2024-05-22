@@ -1,89 +1,22 @@
-<!-- Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-SPDX-License-Identifier: MIT-0
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this
-software and associated documentation files (the "Software"), to deal in the Software
-without restriction, including without limitation the rights to use, copy, modify,
-merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
-INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. -->
-
 <template>
-  <div id="app">
-    <section class="section">
-      <nav
-        class="navbar is-fixed-top is-dark"
-        role="navigation"
-        aria-label="main navigation"
-      >
-        <div class="navbar-brand">
-          <div class="navbar-item">
-            <h1 class="title has-text-white">{{ appName }}</h1>
-          </div>
-          <a
-            role="button"
-            class="navbar-burger burger"
-            aria-label="menu"
-            aria-expanded="false"
-            data-target="navbarCollapse"
-            v-bind:class="{ 'is-active': isOpen }"
-            @click="isOpen = !isOpen"
-          >
-            <span aria-hidden="true"></span>
-            <span aria-hidden="true"></span>
-            <span aria-hidden="true"></span>
-          </a>
-        </div>
-
-        <div
-          id="navbarCollapse"
-          class="navbar-menu"
-          v-bind:class="{ 'is-active': isOpen }"
-        >
-          <div class="navbar-start">
-            <!-- <router-link class="navbar-item" to="/">Dashboard</router-link> -->
-          </div>
-
-          <div class="navbar-end">
-            <a
-              class="navbar-item"
-              v-if="authorized"
-              v-on:click="logout()"
-              v-bind:href="logOutUrl"
-              >Log Out</a
-            >
-            <a class="navbar-item" v-if="!authorized" v-bind:href="signUpUrl"
-              >Sign up</a
-            >
-            <a class="navbar-item" v-if="!authorized" v-bind:href="logInUrl"
-              >Log in</a
-            >
-          </div>
-        </div>
+  <div class="flex flex-col h-screen">
+    <header v-if="authorized" class="w-full fixed top-0 text-white bg-ambience-0 border-b-[1px] border-b-ambience-2">
+      <nav class="container flex items-center justify-between py-6 px-6 mx-auto">
+        <img src="/yobee-logo.svg" alt="logo" class="h-4" />
+        <h1 class="font-bold text-xl">Private URL Shortener</h1>
+        <div></div>
+        <!-- <div :class="{ 'block': isOpen, 'hidden': !isOpen }" @click="isOpen = !isOpen" class="cursor-pointer">
+          <svg class="fill-current h-6 w-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+            <path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v-2z"/>
+          </svg>
+        </div> -->
       </nav>
-    </section>
-    <section class="section">
-      <div class="container">
-        <div v-if="authorized">
-          <router-view />
-        </div>
-        <div v-else>
-          <h1 class="title">Welcome to {{ appName }}</h1>
-          <h2 class="subtitle">The NEWEST URL shortener on the block.</h2>
-          <p v-if="linkNotFound">
-            We're sorry, that link could not be found.
-            <a v-bind:href="signUpUrl">Sign up</a> or
-            <a v-bind:href="logInUrl">Log in</a> to register it?
-          </p>
-        </div>
-      </div>
-    </section>
+    </header>
+    <main :class="{ 'mt-20': authorized }" class="mb-20 bg-root-0">
+      <div class="container mx-auto">
+        <router-view />
+      </div> 
+    </main>
   </div>
 </template>
 
@@ -104,9 +37,9 @@ export default {
   data() {
     return {
       appName: `Magic ${process.env.VUE_APP_NAME}`,
-      signUpUrl: `${authDomain}/signup?response_type=code&client_id=${clientId}&redirect_uri=${redUrl}`,
-      logInUrl: `${authDomain}/login?response_type=code&client_id=${clientId}&redirect_uri=${redUrl}`,
-      logOutUrl: `${authDomain}/logout?client_id=${clientId}&logout_uri=${redUrl}`,
+      signUpUrl: `${authDomain}/signup?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redUrl)}`,
+      logInUrl: `${authDomain}/login?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redUrl)}`,
+      logOutUrl: `${authDomain}/logout?client_id=${clientId}&logout_uri=${encodeURIComponent(redUrl)}`,
       linkNotFound: lnf,
       isOpen: false,
     };

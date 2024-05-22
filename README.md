@@ -22,6 +22,10 @@ Read the blog series about this application:
 1. [Building a serverless URL shortener app without AWS Lambda – part 2](https://aws.amazon.com/blogs/compute/building-a-serverless-url-shortener-app-without-lambda-part-2)
 1. [Building a serverless URL shortener app without AWS Lambda – part 3](https://aws.amazon.com/blogs/compute/building-a-serverless-url-shortener-app-without-lambda-part-3)
 
+## How to deploy 
+1. Run ```sam deploy --template-file certificate.yaml --stack-name CertificateStack --region us-east-1```
+2. Run ```f```
+
 ## The Backend
 
 ### Services Used

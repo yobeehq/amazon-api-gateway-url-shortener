@@ -1,0 +1,122 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Template to create certificates and store their ARNs in SSM Parameter Store
+
+Parameters:
+  BackendDomain:
+    Type: String
+    Description: The backend domain for the certificate
+    Default: yo-b.one
+  FrontendDomain:
+    Type: String
+    Description: Frontend domain for the Amplify app frontend
+    Default: url-shortener.yobee.rocks
+  HostingZone:
+    Type: String
+    Description: The AWS region for hosting resources
+    Default: ap-south-1
+
+Resources:
+  BackendCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref BackendDomain
+      ValidationMethod: DNS
+
+  FrontendCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref FrontendDomain
+      ValidationMethod: DNS
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ssm:PutParameter
+                  - ssm:DeleteParameter
+                Resource:
+                  - arn:aws:ssm:*:*:parameter/config/certificate/BackendCertificateArn
+                  - arn:aws:ssm:*:*:parameter/config/certificate/FrontendCertificateArn
+
+  StoreCertificateArnFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          REGION: !Ref HostingZone
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import os
+          
+          def handler(event, context):
+              ssm = boto3.client('ssm', region_name=os.environ['REGION'])
+              if event['RequestType'] == 'Delete':
+                  ssm.delete_parameter(
+                      Name='/config/certificate/BackendCertificateArn'
+                  )
+                  ssm.delete_parameter(
+                      Name='/config/certificate/FrontendCertificateArn'
+                  )
+              else:
+                  ssm.put_parameter(
+                      Name='/config/certificate/BackendCertificateArn',
+                      Type='String',
+                      Value=event['ResourceProperties']['BackendCertificateArn'],
+                      Overwrite=True
+                  )
+                  ssm.put_parameter(
+                      Name='/config/certificate/FrontendCertificateArn',
+                      Type='String',
+                      Value=event['ResourceProperties']['FrontendCertificateArn'],
+                      Overwrite=True
+                  )
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+      Runtime: python3.8
+
+  StoreBackendCertificateArn:
+    Type: Custom::StoreCertificateArn
+    Properties:
+      ServiceToken: !GetAtt StoreCertificateArnFunction.Arn
+      BackendCertificateArn: !Ref BackendCertificate
+
+  StoreFrontendCertificateArn:
+    Type: Custom::StoreCertificateArn
+    Properties:
+      ServiceToken: !GetAtt StoreCertificateArnFunction.Arn
+      FrontendCertificateArn: !Ref FrontendCertificate
+
+Outputs:
+  BackendCertificateArn:
+    Value: !Ref BackendCertificate
+    Export:
+      Name: BackendCertificateArn
+
+  FrontendCertificateArn:
+    Value: !Ref FrontendCertificate
+    Export:
+      Name: FrontendCertificateArn
