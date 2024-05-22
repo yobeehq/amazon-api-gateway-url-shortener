@@ -192,6 +192,9 @@ Resources:
             baseDirectory: client/dist
             files:
               - '**/*'
+          environment:
+            variables:
+              NODE_OPTIONS: --openssl-legacy-provider
           cache:
             paths:
               - node_modules/**/*
