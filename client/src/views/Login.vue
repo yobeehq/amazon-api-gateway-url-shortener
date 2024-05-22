@@ -14,7 +14,7 @@
             <input type="password" id="password" v-model="password" placeholder="Enter your password"  required class="w-full h-12 text-lg px-3 py-2 border rounded appearance-none text-ambience-8 leading-tight focus:outline-none focus:shadow-outline border-ambience-3">
           </div>
           <button type="submit" class="w-full h-12 bg-brand-1 text-ambience-0 rounded font-semibold hover:bg-brand-2">Login</button>
-          <p v-if="error" class="mt-3 text-error-1">{{ error }}</p>
+          <p v-if="error" class="mt-3 text-error-1 text-center">{{ error }}</p>
         </form>
       </div>
     </div>
