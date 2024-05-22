@@ -1,26 +1,7 @@
-# Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-# SPDX-License-Identifier: MIT-0
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy of this
-# software and associated documentation files (the "Software"), to deal in the Software
-# without restriction, including without limitation the rights to use, copy, modify,
-# merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
-# permit persons to whom the Software is furnished to do so.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
-# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-# PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-# HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Functionless URL Shortner
+Description: Functionless URL Shortener
 
-###################################################################################################
-##   Template Parameters                                                                         ##
-###################################################################################################
 Parameters:
   AppName:
     Type: String
@@ -39,21 +20,15 @@ Parameters:
     NoEcho: true
   CustomDomain:
     Type: String
-    Description: Cstom domain added to client # only configures cognito for now. Manually handle domain on amplify console for client
+    Description: Custom domain added to client # only configures cognito for now. Manually handle domain on amplify console for client
     Default: none
 
-###################################################################################################
-##   Template Conditions                                                                         ##
-###################################################################################################
 Conditions:
   IsLocal: !Equals [!Ref UseLocalClient, 'true']
   HasCustomDomain: !Not [!Equals [!Ref CustomDomain, 'none']]
 
-###################################################################################################
-##   Template Resources                                                                          ##
-###################################################################################################
 Resources:
-  ##   API Gateway                                                                                 
+  ## API Gateway                                                                                 
   SiteAPI:
     Type: AWS::Serverless::Api
     Properties:
@@ -78,7 +53,7 @@ Resources:
           Parameters:
             Location: './api.yaml'
 
-  ##   URL DynamoDB Table
+  ## URL DynamoDB Table
   LinkTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -99,7 +74,7 @@ Resources:
           Projection:
             ProjectionType: ALL
   
-  ##   Cognito user pool
+  ## Cognito user pool
   UserPool:
     Type: AWS::Cognito::UserPool 
     Properties: 
@@ -116,14 +91,14 @@ Resources:
           Name: email 
           Required: false
 
-  ##   Cognito user pool domain
+  ## Cognito user pool domain
   UserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
     Properties: 
       Domain: !Sub ${AppName}-${AWS::AccountId}
       UserPoolId: !Ref UserPool
 
-  ##   Cognito user pool client
+  ## Cognito user pool client
   UserPoolClient:
     Type: AWS::Cognito::UserPoolClient 
     Properties: 
@@ -147,7 +122,7 @@ Resources:
         - email
         - openid
 
-  ##   CloudFront distribution
+  ## CloudFront distribution
   CloudFrontDistro:
     Type: AWS::CloudFront::Distribution
     Properties: 
@@ -175,7 +150,7 @@ Resources:
         - ErrorCachingMinTTL: 5
           ErrorCode: 500
         Logging:
-          Bucket: !GetAtt CloudFrontAccessLogsBucket.DomainName
+          Bucket: !Sub ${NewCloudFrontAccessLogsBucket}.s3.amazonaws.com
         Enabled: true
         Origins:
           - CustomOriginConfig:
@@ -184,16 +159,22 @@ Resources:
             Id: "URLShortenerAPIGW"
             OriginPath: /Prod
 
-  ##   CloudFront access logs storage
-  CloudFrontAccessLogsBucket:
+  ## CloudFront access logs storage
+  NewCloudFrontAccessLogsBucket:
     Type: AWS::S3::Bucket
+    Properties:
+      BucketName: new-cloudfront-access-logs-bucket
+      AccessControl: LogDeliveryWrite
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: ObjectWriter
 
-  ##   Amplify Application for hosting
+  ## Amplify Application for hosting
   AmplifyApp:
     Type: AWS::Amplify::App
     Properties:
       Name: Url-Shortener-Client
-      Description: Basic client for URL Shortner
+      Description: Basic client for URL Shortener
       Repository: !Ref GithubRepository
       AccessToken: !Ref PersonalAcessToken
       BuildSpec: |-
@@ -216,7 +197,7 @@ Resources:
               - node_modules/**/*
       IAMServiceRole: !GetAtt AmplifyRole.Arn
 
-  ##   Amplify Branch for hosting
+  ## Amplify Branch for hosting
   AmplifyBranch:
     Type: AWS::Amplify::Branch
     Properties:
@@ -225,11 +206,7 @@ Resources:
       Description: Master Branch
       EnableAutoBuild: true
 
-###################################################################################################
-##   IAM Roles                                                                                   ##
-###################################################################################################
-
-  ##   Dynamo DB Read Role
+  ## Dynamo DB Read Role
   DDBReadRole:
     Type: "AWS::IAM::Role"
     Properties:
@@ -258,7 +235,7 @@ Resources:
                   - ${TableArn}/index/*
                   - {TableArn: !GetAtt LinkTable.Arn}
 
-  ##   Dynamo DB Read/Write Role
+  ## Dynamo DB Read/Write Role
   DDBCrudRole:
     Type: "AWS::IAM::Role"
     Properties:
@@ -282,7 +259,7 @@ Resources:
               Effect: Allow
               Resource: !GetAtt LinkTable.Arn
 
-  ##   Amplify Hosting Role
+  ## Amplify Hosting Role
   AmplifyRole:
     Type: AWS::IAM::Role
     Properties:
@@ -304,7 +281,7 @@ Resources:
                 Action: "amplify:*"
                 Resource: "*"
 
-## CloudWatchRole for aws gateway account
+  ## CloudWatchRole for aws gateway account
   Account:
     Type: 'AWS::ApiGateway::Account'
     Properties:
@@ -324,10 +301,6 @@ Resources:
       Path: /
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
-
-###################################################################################################
-##   Metrics outputs                                                                            ##
-###################################################################################################
 
   NotifyTopic:
     Type: AWS::SNS::Topic
@@ -444,7 +417,7 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: "Url Shortener CloudFront Cache Hit Rate"
-      AlarmDescription: "CDN eache monitor"
+      AlarmDescription: "CDN cache monitor"
       MetricName: CacheHitRate
       Namespace: AWS/CloudFront
       Dimensions:
@@ -457,11 +430,6 @@ Resources:
       Threshold: .80
       AlarmActions:
         - !Ref NotifyTopic
-
-
-###################################################################################################
-##   Template outputs                                                                            ##
-###################################################################################################
 
 Outputs:
   VueAppName:
