@@ -72,8 +72,13 @@ Resources:
           import boto3
           import cfnresponse
           import os
+          import logging
           
           def handler(event, context):
+              logger = logging.getLogger()
+              logger.setLevel(logging.INFO)
+              logger.info('Event structure: %s', event)
+
               ssm = boto3.client('ssm', region_name=os.environ['REGION'])
               if event['RequestType'] == 'Delete':
                   ssm.delete_parameter(
@@ -98,16 +103,11 @@ Resources:
               cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
       Runtime: python3.8
 
-  StoreBackendCertificateArn:
+  StoreCertificateArns:
     Type: Custom::StoreCertificateArn
     Properties:
       ServiceToken: !GetAtt StoreCertificateArnFunction.Arn
       BackendCertificateArn: !Ref BackendCertificate
-
-  StoreFrontendCertificateArn:
-    Type: Custom::StoreCertificateArn
-    Properties:
-      ServiceToken: !GetAtt StoreCertificateArnFunction.Arn
       FrontendCertificateArn: !Ref FrontendCertificate
 
 Outputs:

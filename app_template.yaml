@@ -18,21 +18,28 @@ Parameters:
     Type: String
     Description: Github personal access token
     NoEcho: true
-  BaseDomain:
+  BackendDomain:
     Type: String
     Description: Base domain without any prefix (e.g., yo-b.one)
-    Default: none
-  CertificateArn:
+    Default: yo-b.one
+  FrontendDomain:
+    Type: String
+    Description: Custom domain for the frontend application
+    Default: url-shortener.yobee.rocks
+  BackendCertificateArn:
     Type: AWS::SSM::Parameter::Value<String>
-    Default: /config/certificate/ShortenerCertificateArn
+    Default: '/config/certificate/BackendCertificateArn'
+  FrontendCertificateArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: '/config/certificate/FrontendCertificateArn'
 
 Conditions:
   IsLocal: !Equals
     - !Ref UseLocalClient
     - 'true'
-  HasCustomDomain: !Not
+  HasCustomBackendDomain: !Not
     - !Equals
-      - !Ref BaseDomain
+      - !Ref BackendDomain
       - none
 
 Resources:
@@ -124,8 +131,8 @@ Resources:
           - http://localhost:8080
           - !Ref AWS::NoValue
         - !If
-          - HasCustomDomain
-          - !Sub https://${BaseDomain}
+          - HasCustomBackendDomain
+          - !Sub https://${BackendDomain}
           - !Ref AWS::NoValue
       LogoutURLs:
         - !Join
@@ -137,13 +144,12 @@ Resources:
           - http://localhost:8080
           - !Ref AWS::NoValue
         - !If
-          - HasCustomDomain
-          - !Sub https://${BaseDomain}
+          - HasCustomBackendDomain
+          - !Sub https://${BackendDomain}
           - !Ref AWS::NoValue
       AllowedOAuthFlowsUserPoolClient: true
       AllowedOAuthFlows:
         - code
-        - password
       AllowedOAuthScopes:
         - email
         - openid
@@ -154,7 +160,7 @@ Resources:
     Properties:
       DistributionConfig:
         Aliases:
-          - !Ref BaseDomain
+          - !Ref BackendDomain
         Comment: URL Shortener CDN
         DefaultCacheBehavior:
           AllowedMethods:
@@ -191,7 +197,7 @@ Resources:
           Bucket: !Sub ${NewCloudFrontAccessLogsBucket}.s3.amazonaws.com
         Enabled: true
         ViewerCertificate:
-          AcmCertificateArn: !Ref CertificateArn
+          AcmCertificateArn: !Ref BackendCertificateArn
           SslSupportMethod: sni-only
         Origins:
           - CustomOriginConfig:
@@ -204,7 +210,7 @@ Resources:
   NewCloudFrontAccessLogsBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: new-cloudfront-access-logs-bucket
+      BucketName: !Sub "${AppName}-cloudfront-access-logs-bucket"
       AccessControl: LogDeliveryWrite
       OwnershipControls:
         Rules:
@@ -240,6 +246,10 @@ Resources:
             paths:
               - node_modules/**/*
       IAMServiceRole: !GetAtt AmplifyRole.Arn
+      CustomRules:
+        - Source: "/<*>"
+          Target: "/index.html"
+          Status: "200"
 
   ## Amplify Branch for hosting
   AmplifyBranch:
@@ -249,6 +259,79 @@ Resources:
       AppId: !GetAtt AmplifyApp.AppId
       Description: Master Branch
       EnableAutoBuild: true
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  AmplifyCustomDomain:
+    Type: Custom::AmplifyCustomDomain
+    Properties:
+      ServiceToken: !GetAtt AmplifyCustomDomainFunction.Arn
+      AppId: !GetAtt AmplifyApp.AppId
+      DomainName: !Ref FrontendDomain
+      CertificateArn: !Ref FrontendCertificateArn
+
+  AmplifyCustomDomainFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import logging
+
+          def handler(event, context):
+              logger = logging.getLogger()
+              logger.setLevel(logging.INFO)
+              logger.info('Event structure: %s', event)
+
+              client = boto3.client('amplify')
+              try:
+                  if event['RequestType'] == 'Delete':
+                      client.delete_domain_association(
+                          appId=event['ResourceProperties']['AppId'],
+                          domainName=event['ResourceProperties']['DomainName']
+                      )
+                  else:
+                      client.create_domain_association(
+                          appId=event['ResourceProperties']['AppId'],
+                          domainName=event['ResourceProperties']['DomainName'],
+                          enableAutoSubDomain=True,
+                          subDomainSettings=[{
+                              'prefix': 'www',
+                              'branchName': 'master'
+                          }],
+                          autoSubDomainCreationPatterns=['*'],
+                          autoSubDomainIAMRole='string'
+                      )
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as e:
+                  logger.error('Error: %s', e)
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {})
+      Runtime: python3.8
 
   ## Dynamo DB Read Role
   DDBReadRole:
@@ -350,7 +433,7 @@ Resources:
   APIGateway4xxAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: URL Shortener API 4xx Alarm
+      AlarmName: !Sub ${AppName} API 4xx Alarm
       AlarmDescription: 4xx monitor
       MetricName: 4XXError
       Namespace: AWS/ApiGateway
@@ -368,7 +451,7 @@ Resources:
   APIGateway5xxAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: URL Shortener API 5xx Alarm
+      AlarmName: !Sub ${AppName} API 5xx Alarm
       AlarmDescription: 5xx monitor
       MetricName: 5XXError
       Namespace: AWS/ApiGateway
@@ -386,7 +469,7 @@ Resources:
   APIGatewayLatencyAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: URL Shortener API Latency Alarm
+      AlarmName: !Sub ${AppName} API Latency Alarm
       AlarmDescription: Latency monitor
       MetricName: Latency
       Namespace: AWS/ApiGateway
@@ -404,7 +487,7 @@ Resources:
   DDB5xxAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: URL Shortener DDB 5xx Alarm
+      AlarmName: !Sub ${AppName} DDB 5xx Alarm
       AlarmDescription: System monitor
       MetricName: SystemErrors
       Namespace: AWS/DynamoDB
@@ -422,7 +505,7 @@ Resources:
   DDB4xxAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: URL Shortener DDB 4xx Alarm
+      AlarmName: !Sub ${AppName} DDB 4xx Alarm
       AlarmDescription: User monitor
       MetricName: UserErrors
       Namespace: AWS/DynamoDB
@@ -440,7 +523,7 @@ Resources:
   CloudFrontTotalErrorRateAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: Url Shortener CloudFront Errors
+      AlarmName: !Sub ${AppName} CloudFront Errors
       AlarmDescription: CDN error monitor
       MetricName: TotalErrorRate
       Namespace: AWS/CloudFront
@@ -458,7 +541,7 @@ Resources:
   CloudFrontTotalCacheHitRateAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: Url Shortener CloudFront Cache Hit Rate
+      AlarmName: !Sub ${AppName} CloudFront Cache Hit Rate
       AlarmDescription: CDN cache monitor
       MetricName: CacheHitRate
       Namespace: AWS/CloudFront
@@ -507,7 +590,7 @@ Outputs:
       - aws amplify update-app --app-id ${AmplifyID} --environment-variables
         VUE_APP_NAME=${AppName},VUE_APP_CLIENT_ID=${UserPoolClient},VUE_APP_API_ROOT=${APIRoot},VUE_APP_AUTH_DOMAIN=${APIAuthDomain}
       - AmplifyID: !GetAtt AmplifyApp.AppId
-        APIRoot: !Sub https://${BaseDomain} # Use BaseDomain parameter
+        APIRoot: !Sub https://${BackendDomain} # Use BackendDomain parameter
         APIAuthDomain: !Sub https://${AppName}-${AWS::AccountId}.auth.${AWS::Region}.amazoncognito.com
 
   AmplifyDeployCommand:
