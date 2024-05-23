@@ -60,7 +60,7 @@ def lambda_handler(event, context):
                     "type": record['ResourceRecord']['Type'],
                     "name": record['ResourceRecord']['Name'],
                     "content": record['ResourceRecord']['Value'],
-                    "ttl": 120,
+                    "ttl": 1,
                     "proxied": False
                 }
 
