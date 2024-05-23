@@ -14,9 +14,17 @@ Parameters:
   GithubRepository:
     Type: String
     Description: Forked GitHub repository URL
+  GithubRepositoryBranchName:
+    Type: String
+    Description: Branch Name
+    Default: main
   PersonalAcessToken:
     Type: String
     Description: Github personal access token
+    NoEcho: true
+  CloudflareApiToken:
+    Type: String
+    Description: The API token for Cloudflare
     NoEcho: true
   BackendDomain:
     Type: String
@@ -124,7 +132,8 @@ Resources:
       CallbackURLs:
         - !Join
           - .
-          - - https://master
+          - - https://
+            - !Ref GithubRepositoryBranchName
             - !GetAtt AmplifyApp.DefaultDomain
         - !If
           - IsLocal
@@ -137,7 +146,8 @@ Resources:
       LogoutURLs:
         - !Join
           - .
-          - - https://master
+          - - https://
+            - !Ref GithubRepositoryBranchName
             - !GetAtt AmplifyApp.DefaultDomain
         - !If
           - IsLocal
@@ -161,7 +171,7 @@ Resources:
       DistributionConfig:
         Aliases:
           - !Ref BackendDomain
-        Comment: URL Shortener CDN
+        Comment: !Ref AppName
         DefaultCacheBehavior:
           AllowedMethods:
             - DELETE
@@ -220,7 +230,7 @@ Resources:
   AmplifyApp:
     Type: AWS::Amplify::App
     Properties:
-      Name: Url-Shortener-Client
+      Name: !Ref AppName
       Description: Basic client for URL Shortener
       Repository: !Ref GithubRepository
       AccessToken: !Ref PersonalAcessToken
@@ -255,9 +265,9 @@ Resources:
   AmplifyBranch:
     Type: AWS::Amplify::Branch
     Properties:
-      BranchName: master
+      BranchName: !Ref GithubRepositoryBranchName
       AppId: !GetAtt AmplifyApp.AppId
-      Description: Master Branch
+      Description: Production Branch
       EnableAutoBuild: true
 
   LambdaExecutionRole:
@@ -282,8 +292,23 @@ Resources:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
+                  - amplify:CreateDomainAssociation
+                  - amplify:DeleteDomainAssociation
+                  - amplify:StartJob
+                  - iam:PassRole
+                  - ssm:GetParameter
                 Resource: '*'
 
+  LambdaLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub "${AWS::StackName}"
+      ContentUri: ./lambdas/lambda_layer.zip
+      CompatibleRuntimes:
+        - python3.12
+      LicenseInfo: 'Yobee Rocks License'
+  
+  
   AmplifyCustomDomain:
     Type: Custom::AmplifyCustomDomain
     Properties:
@@ -291,47 +316,84 @@ Resources:
       AppId: !GetAtt AmplifyApp.AppId
       DomainName: !Ref FrontendDomain
       CertificateArn: !Ref FrontendCertificateArn
+      AutoSubDomainIAMRole: !GetAtt AmplifyRole.Arn
 
   AmplifyCustomDomainFunction:
-    Type: AWS::Lambda::Function
+    Type: AWS::Serverless::Function
+    DependsOn: 
+      - AmplifyRole
+      - AmplifyBranch
     Properties:
-      Handler: index.handler
+      Handler: amplify_custom_domain.handler
       Role: !GetAtt LambdaExecutionRole.Arn
-      Code:
-        ZipFile: |
-          import boto3
-          import cfnresponse
-          import logging
+      CodeUri: ./lambdas/
+      Layers:
+        - !Ref LambdaLayer
+      Timeout: 30
+      Runtime: python3.12
+      Environment:
+        Variables:
+          AMPLIFY_ROLE_ARN: !GetAtt AmplifyRole.Arn
+          AMPLIFY_BRANCH_NAME: !Ref GithubRepositoryBranchName
+          DNS_UPDATER_FUNCTION_ARN: !GetAtt AmplifyCustomDomainDnsUpdaterFunction.Arn
 
-          def handler(event, context):
-              logger = logging.getLogger()
-              logger.setLevel(logging.INFO)
-              logger.info('Event structure: %s', event)
+  AmplifyCustomDomainDnsUpdaterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: amplify_custom_domain_dns_updater.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      CodeUri: ./lambdas/
+      Layers:
+        - !Ref LambdaLayer
+      Timeout: 30
+      Runtime: python3.12
+      Environment:
+        Variables:
+          CFLARE_API_TOKEN: !Ref CloudflareApiToken
+          CFLARE_ZONE_ID: !Ref FrontendDomain
 
-              client = boto3.client('amplify')
-              try:
-                  if event['RequestType'] == 'Delete':
-                      client.delete_domain_association(
-                          appId=event['ResourceProperties']['AppId'],
-                          domainName=event['ResourceProperties']['DomainName']
-                      )
-                  else:
-                      client.create_domain_association(
-                          appId=event['ResourceProperties']['AppId'],
-                          domainName=event['ResourceProperties']['DomainName'],
-                          enableAutoSubDomain=True,
-                          subDomainSettings=[{
-                              'prefix': 'www',
-                              'branchName': 'master'
-                          }],
-                          autoSubDomainCreationPatterns=['*'],
-                          autoSubDomainIAMRole='string'
-                      )
-                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
-              except Exception as e:
-                  logger.error('Error: %s', e)
-                  cfnresponse.send(event, context, cfnresponse.FAILED, {})
-      Runtime: python3.8
+  AmplifyBuildTriggerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: amplify_build_trigger.handler
+      Runtime: python3.12
+      Role: !GetAtt LambdaExecutionRole.Arn
+      CodeUri: ./lambdas/
+      Layers:
+        - !Ref LambdaLayer
+      Timeout: 30
+      Environment:
+        Variables:
+          AMPLIFY_APP_ID: !Ref AmplifyApp
+          AMPLIFY_BRANCH_NAME: !Ref GithubRepositoryBranchName
+
+  AmplifyBuildTrigger:
+    Type: Custom::AmplifyBuildTrigger
+    Properties:
+      ServiceToken: !GetAtt AmplifyBuildTriggerFunction.Arn
+
+
+  DeleteWebhookFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: delete_webhook.handler
+      Runtime: python3.12
+      CodeUri: ./lambdas/
+      Layers:
+        - !Ref LambdaLayer
+      Timeout: 30
+      Environment:
+        Variables:
+          GITHUB_TOKEN: !Ref PersonalAcessToken
+      Policies:
+        - AWSLambdaBasicExecutionRole
+
+  DeleteWebhookResource:
+    Type: Custom::DeleteWebhook
+    Properties:
+      ServiceToken: !GetAtt DeleteWebhookFunction.Arn
+      Repository: !Ref GithubRepository
+    DeletionPolicy: Delete       
 
   ## Dynamo DB Read Role
   DDBReadRole:
@@ -577,7 +639,7 @@ Outputs:
     Description: Domain for client
     Value: !Join
       - .
-      - - https://master
+      - - !Sub "https://${GithubRepositoryBranchName}"
         - !GetAtt AmplifyApp.DefaultDomain
 
   AmplifyAppId:
@@ -596,6 +658,6 @@ Outputs:
   AmplifyDeployCommand:
     Description: Command to deploy the Amplify application
     Value: !Sub
-      - aws amplify start-job --app-id ${AmplifyID} --branch-name master --job-type
+      - aws amplify start-job --app-id ${AmplifyID} --branch-name !Ref GithubRepositoryBranchName --job-type
         RELEASE
       - AmplifyID: !GetAtt AmplifyApp.AppId
