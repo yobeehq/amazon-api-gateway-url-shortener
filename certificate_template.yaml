@@ -1,5 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Template to create certificates and store their ARNs in SSM Parameter Store
+Transform: AWS::Serverless-2016-10-31
+Description: This AWS CloudFormation template creates ACM certificates for the backend and frontend domains, and stores their ARNs in the SSM Parameter Store. It uses AWS SAM to manage the Lambda function that stores DNS records.
 
 Parameters:
   BackendDomain:
@@ -14,6 +15,13 @@ Parameters:
     Type: String
     Description: The AWS region for hosting resources
     Default: ap-south-1
+  CloudflareApiToken:
+    Type: String
+    Description: The API token for Cloudflare
+    NoEcho: true
+
+
+# 4819jfFUDgyR4eN_dPESA3TBjf5QefWd8XLZdNGG
 
 Resources:
   BackendCertificate:
@@ -21,12 +29,25 @@ Resources:
     Properties:
       DomainName: !Ref BackendDomain
       ValidationMethod: DNS
+      SubjectAlternativeNames:
+        - !Sub www.${BackendDomain}
 
   FrontendCertificate:
     Type: AWS::CertificateManager::Certificate
     Properties:
       DomainName: !Ref FrontendDomain
       ValidationMethod: DNS
+      SubjectAlternativeNames:
+        - !Sub www.${FrontendDomain}
+
+  LambdaLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub "${AWS::StackName}"
+      ContentUri: ./lambdas/lambda_layer.zip
+      CompatibleRuntimes:
+        - python3.10
+      LicenseInfo: 'Yobee Rocks License'
 
   LambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -58,57 +79,63 @@ Resources:
                 Resource:
                   - arn:aws:ssm:*:*:parameter/config/certificate/BackendCertificateArn
                   - arn:aws:ssm:*:*:parameter/config/certificate/FrontendCertificateArn
+              - Effect: Allow
+                Action:
+                  - acm:DescribeCertificate
+                Resource: '*'
 
   StoreCertificateArnFunction:
-    Type: AWS::Lambda::Function
+    Type: AWS::Serverless::Function
     Properties:
-      Handler: index.handler
+      Handler: store_certificate_arn.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Environment:
         Variables:
           REGION: !Ref HostingZone
-      Code:
-        ZipFile: |
-          import boto3
-          import cfnresponse
-          import os
-          import logging
-          
-          def handler(event, context):
-              logger = logging.getLogger()
-              logger.setLevel(logging.INFO)
-              logger.info('Event structure: %s', event)
-
-              ssm = boto3.client('ssm', region_name=os.environ['REGION'])
-              if event['RequestType'] == 'Delete':
-                  ssm.delete_parameter(
-                      Name='/config/certificate/BackendCertificateArn'
-                  )
-                  ssm.delete_parameter(
-                      Name='/config/certificate/FrontendCertificateArn'
-                  )
-              else:
-                  ssm.put_parameter(
-                      Name='/config/certificate/BackendCertificateArn',
-                      Type='String',
-                      Value=event['ResourceProperties']['BackendCertificateArn'],
-                      Overwrite=True
-                  )
-                  ssm.put_parameter(
-                      Name='/config/certificate/FrontendCertificateArn',
-                      Type='String',
-                      Value=event['ResourceProperties']['FrontendCertificateArn'],
-                      Overwrite=True
-                  )
-              cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
-      Runtime: python3.8
+      Runtime: python3.10
+      CodeUri: ./lambdas/
+      
 
   StoreCertificateArns:
     Type: Custom::StoreCertificateArn
+    DependsOn: 
+      - StoreCertificateArnFunction
+      - BackendCertificate
+      - FrontendCertificate
     Properties:
       ServiceToken: !GetAtt StoreCertificateArnFunction.Arn
       BackendCertificateArn: !Ref BackendCertificate
       FrontendCertificateArn: !Ref FrontendCertificate
+
+
+  StoreDnsRecordsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: store_dns_records.lambda_handler
+      Runtime: python3.10
+      Layers:
+        - !Ref LambdaLayer
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          CFLARE_API_TOKEN: !Ref CloudflareApiToken
+      CodeUri: ./lambdas/
+
+
+  StoreDnsRecordsFrontend:
+    Type: Custom::StoreDnsRecords
+    Properties:
+      ServiceToken: !GetAtt StoreDnsRecordsFunction.Arn
+      CertificateArn: !Ref FrontendCertificate
+      ZoneId: !Ref FrontendDomain
+
+  StoreDnsRecordsBackend:
+    Type: Custom::StoreDnsRecords
+    Properties:
+      ServiceToken: !GetAtt StoreDnsRecordsFunction.Arn
+      CertificateArn: !Ref BackendCertificate
+      ZoneId: !Ref BackendDomain
+
 
 Outputs:
   BackendCertificateArn:
