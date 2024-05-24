@@ -2,9 +2,15 @@ import boto3
 import cfnresponse
 import os
 import logging
+import datetime
+import json
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
+
+def datetime_converter(o):
+    if isinstance(o, datetime.datetime):
+        return o.__str__()
 
 def handler(event, context):
     try:
@@ -16,13 +22,14 @@ def handler(event, context):
 
         if event['RequestType'] in ['Create', 'Update']:
             try:
-                responseData = client.start_job(
+                response_data = client.start_job(
                     appId=appId,
                     branchName=branchName,
                     jobType='RELEASE',
                 )
-                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
-                logging.info(f'Successfully started job: {responseData}')
+                response_data = json.loads(json.dumps(response_data, default=datetime_converter))
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, response_data)
+                logging.info(f'Successfully started job: {response_data}')
             except Exception as e:
                 cfnresponse.send(event, context, cfnresponse.FAILED, {}, str(e))
                 logging.error(f'Failed to start job: {str(e)}')

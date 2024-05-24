@@ -2,27 +2,25 @@ import json
 import logging
 import os
 import time
+from typing import List
 
 import boto3
 
 import cfnresponse
+from models.DNSRecord import DNSRecord
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 
-def split_dns_record(dns_record, baseDomain):
+def split_dns_record(dns_record, baseDomain) -> DNSRecord:
     parts = dns_record.split(' ', 2)
     if len(parts) != 3:
         raise ValueError('Invalid DNS record format')
-    return {
-        'type': parts[1],
-        'name': baseDomain if parts[0] == '' else f'{parts[0]}.{baseDomain}',
-        'content': parts[2]
-    }
+    return DNSRecord(parts[1], baseDomain if parts[0] == '' else f'{parts[0]}.{baseDomain}', parts[2])
 
 
-def get_dns_records(app_id, domain_name):
+def get_dns_records(app_id, domain_name) -> List[DNSRecord]:
     client = boto3.client('amplify')
     while True:
         response = client.get_domain_association(
@@ -99,13 +97,17 @@ def handler(event, context):
                 InvocationType='Event',
                 Payload=json.dumps({
                     'ResourceProperties': {
-                        'DnsRecords': dns_records
+                        'DnsRecords': DNSRecord.to_json_list(dns_records)
                     },
-                    'ResponseURL': event['ResponseURL']
+                    'ResponseURL': event['ResponseURL'],
+                    'StackId': event['StackId'],
+                    'RequestId': event['RequestId'],
+                    'LogicalResourceId': event['LogicalResourceId'],
                 })
             )
 
-            logger.info('Lambda for DNS Update For Cloudflare Triggered with DNS records: %s', dns_records)
+            logger.info('Lambda for DNS Update For Cloudflare Triggered with DNS records: %s',
+                        DNSRecord.to_json_list(dns_records))
 
     except Exception as e:
         logger.error('Error: %s', e)

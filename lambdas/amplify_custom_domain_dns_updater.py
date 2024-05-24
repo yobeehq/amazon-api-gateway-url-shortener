@@ -4,6 +4,7 @@ import os
 import requests
 
 import cfnresponse
+from models.DNSRecord import DNSRecord
 
 
 def main(event, context):
@@ -19,14 +20,14 @@ def main(event, context):
         "Content-Type": "application/json"
     }
 
-    dns_records = event['ResourceProperties']['DnsRecords']
+    dns_records = DNSRecord.from_json_list(event['ResourceProperties']['DnsRecords'])
 
     for record in dns_records:
         # Prepare the data for the Cloudflare API request
         record_data = {
-            "type": record['type'],
-            "name": record['name'],
-            "content": record['value'],
+            "type": record.type,
+            "name": record.name,
+            "content": record.content,
             "ttl": 1,
             "proxied": False
         }
@@ -41,8 +42,13 @@ def main(event, context):
             json=record_data
         )
 
-        # Log the response
-        logging.info(f"Response: {response.json()}")
+        response_data = response.json()
+        if not response_data['success']:
+            # If the request was not successful, raise an exception with the error message
+            raise Exception(f"Cloudflare API request failed: {response_data['errors']}")
+        else:
+            logging.info(f"DNS Added: {response_data}")
+
 
 def handler(event, context):
     try:
