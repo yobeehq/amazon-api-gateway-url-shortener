@@ -1,9 +1,12 @@
-import os
-import boto3
-import requests
 import logging
+import os
 
-def handler(event, context):
+import requests
+
+import cfnresponse
+
+
+def main(event, context):
     logging.info(f"Received event: {event}")
 
     # Get the Cloudflare API token and zone ID from environment variables
@@ -21,9 +24,9 @@ def handler(event, context):
     for record in dns_records:
         # Prepare the data for the Cloudflare API request
         record_data = {
-            "type": record['Type'],
-            "name": record['Name'],
-            "content": record['Value'],
+            "type": record['type'],
+            "name": record['name'],
+            "content": record['value'],
             "ttl": 1,
             "proxied": False
         }
@@ -40,3 +43,11 @@ def handler(event, context):
 
         # Log the response
         logging.info(f"Response: {response.json()}")
+
+def handler(event, context):
+    try:
+        main(event, context)
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+    except Exception as e:
+        logging.error(f"An error occurred: {str(e)}")
+        cfnresponse.send(event, context, cfnresponse.FAILED, {})
