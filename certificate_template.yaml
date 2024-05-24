@@ -19,6 +19,14 @@ Parameters:
     Type: String
     Description: The API token for Cloudflare
     NoEcho: true
+  CloudflareZoneIdForFrontend:
+    Type: String
+    Description: ZoneID for the frontend domain
+    Default: eeaefbbca0d628843f2662101cd4c210
+  CloudflareZoneIdForBackend:
+    Type: String
+    Description: ZoneID for the frontend domain
+    Default: 5633d4c66d35fb421dee68848ca54812
 
 
 # 4819jfFUDgyR4eN_dPESA3TBjf5QefWd8XLZdNGG
@@ -46,7 +54,7 @@ Resources:
       LayerName: !Sub "${AWS::StackName}"
       ContentUri: ./lambdas/lambda_layer.zip
       CompatibleRuntimes:
-        - python3.10
+        - python3.12
       LicenseInfo: 'Yobee Rocks License'
 
   LambdaExecutionRole:
@@ -92,13 +100,15 @@ Resources:
       Environment:
         Variables:
           REGION: !Ref HostingZone
-      Runtime: python3.10
+      Runtime: python3.12
+      Layers:
+        - !Ref LambdaLayer
       CodeUri: ./lambdas/
-      
+
 
   StoreCertificateArns:
     Type: Custom::StoreCertificateArn
-    DependsOn: 
+    DependsOn:
       - StoreCertificateArnFunction
       - BackendCertificate
       - FrontendCertificate
@@ -108,11 +118,11 @@ Resources:
       FrontendCertificateArn: !Ref FrontendCertificate
 
 
-  StoreDnsRecordsFunction:
+  ACMStoreDnsRecordsFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: store_dns_records.lambda_handler
-      Runtime: python3.10
+      Handler: acm_store_dns_records.lambda_handler
+      Runtime: python3.12
       Layers:
         - !Ref LambdaLayer
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -127,14 +137,14 @@ Resources:
     Properties:
       ServiceToken: !GetAtt StoreDnsRecordsFunction.Arn
       CertificateArn: !Ref FrontendCertificate
-      ZoneId: !Ref FrontendDomain
+      ZoneId: !Ref CloudflareZoneIdForFrontend
 
   StoreDnsRecordsBackend:
     Type: Custom::StoreDnsRecords
     Properties:
       ServiceToken: !GetAtt StoreDnsRecordsFunction.Arn
       CertificateArn: !Ref BackendCertificate
-      ZoneId: !Ref BackendDomain
+      ZoneId: !Ref CloudflareZoneIdForBackend
 
 
 Outputs:

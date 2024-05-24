@@ -1,4 +1,3 @@
-# FILE: store_dns_records.py
 import os
 import boto3
 import requests
