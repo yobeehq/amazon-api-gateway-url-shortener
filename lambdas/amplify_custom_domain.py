@@ -60,7 +60,8 @@ def handler(event, context):
                 )
             except client.exceptions.NotFoundException:
                 logger.info('Domain association not found, skipping deletion.')
-                cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
         else:
             # Get the certificate ARN from the Parameter Store
             certificate_arn = ssm.get_parameter(

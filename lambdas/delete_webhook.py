@@ -17,5 +17,8 @@ def handler(event, context):
                     requests.delete(f"https://api.github.com/repos/{repo}/hooks/{hook['id']}", headers=headers)
             cfnresponse.send(event, context, cfnresponse.SUCCESS,
                              {'Status': 'SUCCESS', 'PhysicalResourceId': 'DeleteWebhookResource'})
+        else:
+            cfnresponse.send(event, context, cfnresponse.SUCCESS,
+                             {'Status': 'SUCCESS', 'PhysicalResourceId': 'DeleteWebhookResource'})
     except Exception as e:
         cfnresponse.send(event, context, cfnresponse.FAILED, {'Status': 'FAILED', 'Reason': str(e)})

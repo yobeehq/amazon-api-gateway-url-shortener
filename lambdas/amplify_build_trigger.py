@@ -22,6 +22,16 @@ def handler(event, context):
 
         if event['RequestType'] in ['Create', 'Update']:
             try:
+
+                client.update_app(
+                    appId=appId,
+                    environmentVariables={
+                        'VUE_APP_NAME': os.environ['AMPLIFY_APP_NAME'],
+                        'VUE_APP_CLIENT_ID': os.environ['AMPLIFY_APP_CLIENT_ID'],
+                        'VUE_APP_API_ROOT': os.environ['AMPLIFY_APP_API_ROOT'],
+                        'VUE_APP_AUTH_DOMAIN': os.environ['AMPLIFY_APP_AUTH_DOMAIN']
+                    }
+                )
                 response_data = client.start_job(
                     appId=appId,
                     branchName=branchName,
