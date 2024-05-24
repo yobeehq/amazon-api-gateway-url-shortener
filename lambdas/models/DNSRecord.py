@@ -18,9 +18,8 @@ class DNSRecord:
         return cls(**data)
 
     @classmethod
-    def from_json_list(cls, json_list_str) -> List['DNSRecord']:
-        data_list = json.loads(json_list_str)
-        return [cls(**data) for data in data_list]
+    def from_json_list(cls, json_list) -> List['DNSRecord']:
+        return [cls(**data) for data in json_list]
 
     @classmethod
     def to_json_list(cls, records) -> List[Dict]:
