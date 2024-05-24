@@ -26,6 +26,14 @@ Parameters:
     Type: String
     Description: The API token for Cloudflare
     NoEcho: true
+  CloudflareZoneIdForFrontend:
+    Type: String
+    Description: ZoneID for the frontend domain
+    Default: eeaefbbca0d628843f2662101cd4c210
+  CloudflareZoneIdForBackend:
+    Type: String
+    Description: ZoneID for the frontend domain
+    Default: 5633d4c66d35fb421dee68848ca54812
   BackendDomain:
     Type: String
     Description: Base domain without any prefix (e.g., yo-b.one)
@@ -295,8 +303,13 @@ Resources:
                   - amplify:CreateDomainAssociation
                   - amplify:DeleteDomainAssociation
                   - amplify:StartJob
+                  - amplify:UpdateApp
+                  - amplify:ListDomainAssociations
                   - iam:PassRole
                   - ssm:GetParameter
+                  - route53:ListHostedZones
+                  - amplify:GetDomainAssociation
+                  - lambda:InvokeFunction
                 Resource: '*'
 
   LambdaLayer:
@@ -320,7 +333,7 @@ Resources:
 
   AmplifyCustomDomainFunction:
     Type: AWS::Serverless::Function
-    DependsOn: 
+    DependsOn:
       - AmplifyRole
       - AmplifyBranch
     Properties:
@@ -350,7 +363,23 @@ Resources:
       Environment:
         Variables:
           CFLARE_API_TOKEN: !Ref CloudflareApiToken
-          CFLARE_ZONE_ID: !Ref FrontendDomain
+          CFLARE_ZONE_ID: !Ref CloudflareZoneIdForFrontend
+
+  AmplifyCustomDomainDNSDeletionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: amplify_custom_domain_dns_deletion.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      CodeUri: ./lambdas/
+      Layers:
+        - !Ref LambdaLayer
+      Timeout: 30
+      Runtime: python3.12
+      Environment:
+        Variables:
+          CFLARE_API_TOKEN: !Ref CloudflareApiToken
+          CFLARE_ZONE_ID: !Ref CloudflareZoneIdForFrontend
+          AMPLIFY_APP_ID: !GetAtt AmplifyApp.AppId
 
   AmplifyBuildTriggerFunction:
     Type: AWS::Serverless::Function
@@ -366,6 +395,10 @@ Resources:
         Variables:
           AMPLIFY_APP_ID: !Ref AmplifyApp
           AMPLIFY_BRANCH_NAME: !Ref GithubRepositoryBranchName
+          AMPLIFY_APP_NAME: !Ref AppName
+          AMPLIFY_APP_CLIENT_ID: !Ref UserPoolClient
+          AMPLIFY_APP_API_ROOT: !Sub https://${BackendDomain}
+          AMPLIFY_APP_AUTH_DOMAIN: !Sub https://${AppName}-${AWS::AccountId}.auth.${AWS::Region}.amazoncognito.com
 
   AmplifyBuildTrigger:
     Type: Custom::AmplifyBuildTrigger
@@ -393,7 +426,7 @@ Resources:
     Properties:
       ServiceToken: !GetAtt DeleteWebhookFunction.Arn
       Repository: !Ref GithubRepository
-    DeletionPolicy: Delete       
+    DeletionPolicy: Delete
 
   ## Dynamo DB Read Role
   DDBReadRole:
@@ -618,46 +651,5 @@ Resources:
       AlarmActions:
         - !Ref NotifyTopic
 
-Outputs:
-  VueAppName:
-    Description: Name of your application
-    Value: !Ref AppName
 
-  VueAppAPIRoot:
-    Description: API Gateway endpoint URL for linker
-    Value: !Sub https://${CloudFrontDistro.DomainName}
 
-  VueAppAuthDomain:
-    Description: Domain used for authentication
-    Value: !Sub https://${AppName}-${AWS::AccountId}.auth.${AWS::Region}.amazoncognito.com
-
-  VueAppClientId:
-    Description: Cognito User Pool Client Id
-    Value: !Ref UserPoolClient
-
-  ClientDomainAddress:
-    Description: Domain for client
-    Value: !Join
-      - .
-      - - !Sub "https://${GithubRepositoryBranchName}"
-        - !GetAtt AmplifyApp.DefaultDomain
-
-  AmplifyAppId:
-    Description: Amplify application ID
-    Value: !GetAtt AmplifyApp.AppId
-
-  AmplifyEnvironmentUpdateCommand:
-    Description: Command to add environment variables to the Amplify application
-    Value: !Sub
-      - aws amplify update-app --app-id ${AmplifyID} --environment-variables
-        VUE_APP_NAME=${AppName},VUE_APP_CLIENT_ID=${UserPoolClient},VUE_APP_API_ROOT=${APIRoot},VUE_APP_AUTH_DOMAIN=${APIAuthDomain}
-      - AmplifyID: !GetAtt AmplifyApp.AppId
-        APIRoot: !Sub https://${BackendDomain} # Use BackendDomain parameter
-        APIAuthDomain: !Sub https://${AppName}-${AWS::AccountId}.auth.${AWS::Region}.amazoncognito.com
-
-  AmplifyDeployCommand:
-    Description: Command to deploy the Amplify application
-    Value: !Sub
-      - aws amplify start-job --app-id ${AmplifyID} --branch-name !Ref GithubRepositoryBranchName --job-type
-        RELEASE
-      - AmplifyID: !GetAtt AmplifyApp.AppId
