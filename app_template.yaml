@@ -167,7 +167,7 @@ Resources:
           - !Ref AWS::NoValue
       AllowedOAuthFlowsUserPoolClient: true
       AllowedOAuthFlows:
-        - code
+        - password
       AllowedOAuthScopes:
         - email
         - openid
